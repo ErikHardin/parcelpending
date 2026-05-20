@@ -656,7 +656,9 @@ scanBtn.addEventListener('click', async function(){
     var result = await Tesseract.recognize(imageBase64, 'eng');
     var text = result.data.text;
     var matches = text.match(/\b\d{7,9}\b/g) || [];
-    var codes = matches.filter(function(v,i,a){ return a.indexOf(v)===i; });
+    var codeCounts = {};
+    matches.forEach(function(c){ codeCounts[c] = (codeCounts[c]||0) + 1; });
+    var codes = Object.keys(codeCounts);
     if(codes.length===0){
       setStatus('No parcel codes found in that image.',true);
       scanBtn.innerHTML='Extract Parcel Numbers'; scanBtn.disabled=false; return;
@@ -666,7 +668,7 @@ scanBtn.addEventListener('click', async function(){
       var code=codes[i], key=safeKey(code);
       if(!allParcels[key]){
         await window._fb.set(window._fb.codeRef(key),{
-          code:code, carriers:[], count:1,
+          code:code, carriers:[], count:codeCounts[code],
           dateLabel:'Unknown', done:false, addedAt:new Date().toISOString()
         });
         added++;
