@@ -550,7 +550,7 @@ function renderBarcode(code, svgId) {
     var el = document.getElementById(svgId);
     if (!el) return;
     try {
-      JsBarcode(el, String(code), { format:'CODE128', width:2, height:60, displayValue:false, margin:4 });
+      JsBarcode(el, String(code) + '\n', { format:'CODE128', width:2, height:60, displayValue:false, margin:4 });
     } catch(e) {
       el.outerHTML = '<p style="color:var(--muted);font-size:0.75rem;font-family:DM Mono,monospace">Invalid: '+code+'</p>';
     }
