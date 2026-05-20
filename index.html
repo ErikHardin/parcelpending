@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Parcel Pickup</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getDatabase, ref, onValue, set, remove, update, get }
@@ -174,40 +175,6 @@
     cursor: pointer; transition: color 0.2s;
   }
   .lock-btn:hover { color: #fff; }
-
-  /* ── API Key Modal ── */
-  .modal-overlay {
-    position: fixed; inset: 0; z-index: 300;
-    background: rgba(0,0,0,0.55);
-    display: flex; align-items: center; justify-content: center;
-    padding: 24px;
-  }
-  .modal-overlay.hidden { display: none; }
-  .modal-box {
-    background: var(--surface); border-radius: 16px;
-    padding: 24px 20px; width: 100%; max-width: 360px;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.25);
-  }
-  .modal-box h3 { font-size: 1rem; font-weight: 700; margin-bottom: 6px; }
-  .modal-box p  { font-size: 0.78rem; color: var(--muted); font-family: 'DM Mono', monospace; margin-bottom: 14px; line-height: 1.5; }
-  .modal-input {
-    width: 100%; border: 1.5px solid var(--border); border-radius: 10px;
-    padding: 10px 12px; font-family: 'DM Mono', monospace; font-size: 0.82rem;
-    background: var(--bg); color: var(--text); outline: none;
-    margin-bottom: 14px;
-  }
-  .modal-input:focus { border-color: var(--accent); }
-  .modal-actions { display: flex; gap: 10px; }
-  .modal-save {
-    flex: 1; background: var(--accent); color: #fff; border: none;
-    border-radius: 10px; padding: 10px; font-family: 'Syne', sans-serif;
-    font-size: 0.9rem; font-weight: 700; cursor: pointer;
-  }
-  .modal-cancel {
-    background: var(--bg); color: var(--muted); border: 1.5px solid var(--border);
-    border-radius: 10px; padding: 10px 14px; font-family: 'Syne', sans-serif;
-    font-size: 0.9rem; cursor: pointer;
-  }
 
   /* ── Upload ── */
   .upload-zone {
@@ -387,7 +354,6 @@
     <h1>Parcel <span class="accent">Pickup</span> <span class="sync-dot" id="syncDot"></span></h1>
     <div class="header-right">
       <span class="badge" id="pendingBadge">0 pending</span>
-      <button class="lock-btn" id="settingsBtn" title="API Key settings">⚙️</button>
       <button class="lock-btn" id="lockBtn" title="Lock app">🔒</button>
     </div>
   </header>
@@ -409,19 +375,6 @@
   </div>
 
   <div id="parcelList" class="parcel-list"></div>
-</div>
-
-<!-- ── API Key Modal ── -->
-<div class="modal-overlay hidden" id="apiKeyModal">
-  <div class="modal-box">
-    <h3>🔑 Anthropic API Key</h3>
-    <p>Required for Extract Parcel Numbers. Your key is stored locally on this device only.</p>
-    <input class="modal-input" type="password" id="apiKeyInput" placeholder="sk-ant-api03-…" autocomplete="off" spellcheck="false">
-    <div class="modal-actions">
-      <button class="modal-cancel" id="apiKeyCancel">Cancel</button>
-      <button class="modal-save" id="apiKeySave">Save</button>
-    </div>
-  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -542,32 +495,6 @@ document.getElementById('pinDelete').addEventListener('click', function() {
 });
 document.getElementById('lockBtn').addEventListener('click', lockApp);
 
-// ── API Key settings ──────────────────────────────────────────────────────────
-var apiKeyModal  = document.getElementById('apiKeyModal');
-var apiKeyInput  = document.getElementById('apiKeyInput');
-
-document.getElementById('settingsBtn').addEventListener('click', function() {
-  apiKeyInput.value = localStorage.getItem('anthropicKey') || '';
-  apiKeyModal.classList.remove('hidden');
-  setTimeout(function(){ apiKeyInput.focus(); }, 50);
-});
-document.getElementById('apiKeyCancel').addEventListener('click', function() {
-  apiKeyModal.classList.add('hidden');
-});
-document.getElementById('apiKeySave').addEventListener('click', function() {
-  var key = apiKeyInput.value.trim();
-  if (key) {
-    localStorage.setItem('anthropicKey', key);
-    showToast('API key saved ✓');
-  } else {
-    localStorage.removeItem('anthropicKey');
-    showToast('API key cleared');
-  }
-  apiKeyModal.classList.add('hidden');
-});
-apiKeyModal.addEventListener('click', function(e) {
-  if (e.target === apiKeyModal) apiKeyModal.classList.add('hidden');
-});
 
 // ─── App state ────────────────────────────────────────────────────────────────
 var currentTab = 'pending';
@@ -713,9 +640,8 @@ fileInput.addEventListener('change',function(){
 function handleFile(file) {
   var reader=new FileReader();
   reader.onload=function(e){
-    var dataUrl=e.target.result;
-    imageBase64=dataUrl.split(',')[1];
-    previewImg.src=dataUrl; previewImg.style.display='block';
+    imageBase64=e.target.result;
+    previewImg.src=imageBase64; previewImg.style.display='block';
     scanBtn.disabled=false;
     setStatus('Image ready — tap Extract to scan');
   };
@@ -723,60 +649,30 @@ function handleFile(file) {
 }
 scanBtn.addEventListener('click', async function(){
   if(!imageBase64) return;
-  var anthropicKey = localStorage.getItem('anthropicKey');
-  if(!anthropicKey) {
-    apiKeyInput.value = '';
-    apiKeyModal.classList.remove('hidden');
-    setTimeout(function(){ apiKeyInput.focus(); }, 50);
-    return;
-  }
   scanBtn.disabled=true;
   scanBtn.innerHTML='<span class="spinner"></span>Scanning...';
-  setStatus('Sending to Claude Vision...');
+  setStatus('Reading image...');
   try {
-    var res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body:JSON.stringify({
-        model:'claude-sonnet-4-5',
-        max_tokens:1000,
-        messages:[{role:'user',content:[
-          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:imageBase64}},
-          {type:'text',text:'Extract all parcel pickup codes from this Parcel Pending app screenshot.\n\nIMPORTANT: The same pickup code may appear multiple times with different carriers — group by code.\n\nReturn ONLY a valid JSON array, no markdown:\n[\n  {"code":"37039842","carriers":["Amazon","Amazon"],"count":2,"dateLabel":"2 days ago"},\n  {"code":"50662385","carriers":["UPS"],"count":1,"dateLabel":"Today"}\n]\n\nRules:\n- code = numeric pickup code\n- carriers = every carrier listed for that code (may repeat)\n- count = total packages for that code\n- dateLabel = section header shown (Today, Yesterday, "X days ago")\n- If none found return []'}
-        ]}]
-      })
-    });
-    var data=await res.json();
-    var raw=(data.content||[]).find(function(b){return b.type==='text';});
-    raw=raw?raw.text:'[]';
-    var extracted=JSON.parse(raw.replace(/```json|```/g,'').trim());
-    if(!Array.isArray(extracted)||extracted.length===0){
+    var result = await Tesseract.recognize(imageBase64, 'eng');
+    var text = result.data.text;
+    var matches = text.match(/\b\d{7,9}\b/g) || [];
+    var codes = matches.filter(function(v,i,a){ return a.indexOf(v)===i; });
+    if(codes.length===0){
       setStatus('No parcel codes found in that image.',true);
       scanBtn.innerHTML='Extract Parcel Numbers'; scanBtn.disabled=false; return;
     }
     var added=0;
-    for(var i=0;i<extracted.length;i++){
-      var item=extracted[i], key=safeKey(item.code);
+    for(var i=0;i<codes.length;i++){
+      var code=codes[i], key=safeKey(code);
       if(!allParcels[key]){
         await window._fb.set(window._fb.codeRef(key),{
-          code:item.code, carriers:item.carriers||[], count:item.count||(item.carriers?item.carriers.length:1),
-          dateLabel:item.dateLabel||'Unknown', done:false, addedAt:new Date().toISOString()
+          code:code, carriers:[], count:1,
+          dateLabel:'Unknown', done:false, addedAt:new Date().toISOString()
         });
         added++;
-      } else {
-        var ex=allParcels[key];
-        await window._fb.set(window._fb.codeRef(key),Object.assign({},ex,{
-          carriers:(ex.carriers||[]).concat(item.carriers||[]),
-          count:(ex.count||1)+(item.count||1)
-        }));
       }
     }
-    setStatus('Found '+extracted.length+' code(s) — '+added+' new added.');
+    setStatus('Found '+codes.length+' code(s) — '+added+' new added.');
     currentTab='pending';
     document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t.dataset.tab==='pending');});
     showToast(added+' code'+(added!==1?'s':'')+' added 📦');
