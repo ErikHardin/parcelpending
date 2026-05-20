@@ -357,11 +357,11 @@
     </div>
   </header>
 
+  <input type="file" accept="image/*" id="fileInput" style="display:none">
   <div class="upload-zone" id="uploadZone">
-    <input type="file" accept="image/*" id="fileInput" capture="environment">
     <div class="upload-icon">📦</div>
     <h2>Upload Parcel Pending Screenshot</h2>
-    <p>tap to choose or drag &amp; drop</p>
+    <p>tap to choose a photo</p>
     <img class="preview-img" id="previewImg" alt="preview">
   </div>
 
@@ -625,6 +625,7 @@ var previewImg = document.getElementById('previewImg');
 var scanBtn    = document.getElementById('scanBtn');
 var uploadZone = document.getElementById('uploadZone');
 
+uploadZone.addEventListener('click', function(){ fileInput.click(); });
 uploadZone.addEventListener('dragover',function(e){e.preventDefault();uploadZone.classList.add('dragover');});
 uploadZone.addEventListener('dragleave',function(){uploadZone.classList.remove('dragover');});
 uploadZone.addEventListener('drop',function(e){
