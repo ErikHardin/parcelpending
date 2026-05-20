@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Parcel Pickup">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
 <title>Parcel Pickup</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -470,6 +475,21 @@ function unlockApp() {
   document.getElementById('pinScreen').classList.add('hidden');
   document.getElementById('mainApp').classList.add('visible');
   startFirebaseListener();
+  checkSharedImage();
+}
+
+async function checkSharedImage() {
+  if (!('caches' in window)) return;
+  try {
+    var cache = await caches.open('share-target-v1');
+    var response = await cache.match('pending');
+    if (!response) return;
+    await cache.delete('pending');
+    var blob = await response.blob();
+    var file = new File([blob], 'shared.jpg', { type: blob.type || 'image/jpeg' });
+    handleFile(file);
+    setTimeout(function() { scanBtn.click(); }, 300);
+  } catch(e) {}
 }
 
 function lockApp() {
@@ -713,6 +733,10 @@ window._appInit = async function() {
   }
   // PIN screen is already visible by default, nothing else needed
 };
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
 </script>
 </body>
 </html>
