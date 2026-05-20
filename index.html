@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Parcel Pickup</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getDatabase, ref, onValue, set, remove, update, get }
@@ -494,6 +495,7 @@ document.getElementById('pinDelete').addEventListener('click', function() {
 });
 document.getElementById('lockBtn').addEventListener('click', lockApp);
 
+
 // ─── App state ────────────────────────────────────────────────────────────────
 var currentTab = 'pending';
 var imageBase64 = null;
@@ -638,9 +640,8 @@ fileInput.addEventListener('change',function(){
 function handleFile(file) {
   var reader=new FileReader();
   reader.onload=function(e){
-    var dataUrl=e.target.result;
-    imageBase64=dataUrl.split(',')[1];
-    previewImg.src=dataUrl; previewImg.style.display='block';
+    imageBase64=e.target.result;
+    previewImg.src=imageBase64; previewImg.style.display='block';
     scanBtn.disabled=false;
     setStatus('Image ready — tap Extract to scan');
   };
@@ -650,46 +651,28 @@ scanBtn.addEventListener('click', async function(){
   if(!imageBase64) return;
   scanBtn.disabled=true;
   scanBtn.innerHTML='<span class="spinner"></span>Scanning...';
-  setStatus('Sending to Claude Vision...');
+  setStatus('Reading image...');
   try {
-    var res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:1000,
-        messages:[{role:'user',content:[
-          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:imageBase64}},
-          {type:'text',text:'Extract all parcel pickup codes from this Parcel Pending app screenshot.\n\nIMPORTANT: The same pickup code may appear multiple times with different carriers — group by code.\n\nReturn ONLY a valid JSON array, no markdown:\n[\n  {"code":"37039842","carriers":["Amazon","Amazon"],"count":2,"dateLabel":"2 days ago"},\n  {"code":"50662385","carriers":["UPS"],"count":1,"dateLabel":"Today"}\n]\n\nRules:\n- code = numeric pickup code\n- carriers = every carrier listed for that code (may repeat)\n- count = total packages for that code\n- dateLabel = section header shown (Today, Yesterday, "X days ago")\n- If none found return []'}
-        ]}]
-      })
-    });
-    var data=await res.json();
-    var raw=(data.content||[]).find(function(b){return b.type==='text';});
-    raw=raw?raw.text:'[]';
-    var extracted=JSON.parse(raw.replace(/```json|```/g,'').trim());
-    if(!Array.isArray(extracted)||extracted.length===0){
+    var result = await Tesseract.recognize(imageBase64, 'eng');
+    var text = result.data.text;
+    var matches = text.match(/\b\d{7,9}\b/g) || [];
+    var codes = matches.filter(function(v,i,a){ return a.indexOf(v)===i; });
+    if(codes.length===0){
       setStatus('No parcel codes found in that image.',true);
       scanBtn.innerHTML='Extract Parcel Numbers'; scanBtn.disabled=false; return;
     }
     var added=0;
-    for(var i=0;i<extracted.length;i++){
-      var item=extracted[i], key=safeKey(item.code);
+    for(var i=0;i<codes.length;i++){
+      var code=codes[i], key=safeKey(code);
       if(!allParcels[key]){
         await window._fb.set(window._fb.codeRef(key),{
-          code:item.code, carriers:item.carriers||[], count:item.count||(item.carriers?item.carriers.length:1),
-          dateLabel:item.dateLabel||'Unknown', done:false, addedAt:new Date().toISOString()
+          code:code, carriers:[], count:1,
+          dateLabel:'Unknown', done:false, addedAt:new Date().toISOString()
         });
         added++;
-      } else {
-        var ex=allParcels[key];
-        await window._fb.set(window._fb.codeRef(key),Object.assign({},ex,{
-          carriers:(ex.carriers||[]).concat(item.carriers||[]),
-          count:(ex.count||1)+(item.count||1)
-        }));
       }
     }
-    setStatus('Found '+extracted.length+' code(s) — '+added+' new added.');
+    setStatus('Found '+codes.length+' code(s) — '+added+' new added.');
     currentTab='pending';
     document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t.dataset.tab==='pending');});
     showToast(added+' code'+(added!==1?'s':'')+' added 📦');
