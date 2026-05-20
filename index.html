@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Parcel Pickup</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, onValue, set, remove, update, get }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  // ─────────────────────────────────────────────────────────────
+  // 🔧 PASTE YOUR FIREBASE CONFIG HERE
+  // Firebase Console → Project Settings → Your Apps → SDK setup
+  // ─────────────────────────────────────────────────────────────
+  const firebaseConfig = {
+    apiKey:            "AIzaSyDELlliNDG66ckhCZZH8whbFWswvNnYRpc",
+    authDomain:        "parcelpending-e22a5.firebaseapp.com",
+    databaseURL:       "https://parcelpending-e22a5-default-rtdb.firebaseio.com",
+    projectId:         "parcelpending-e22a5",
+    storageBucket:     "parcelpending-e22a5.firebasestorage.app",
+    messagingSenderId: "476405008144",
+    appId:             "1:476405008144:web:3840ff7e14179761ae0795"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getDatabase(app);
+
+  window._fb = {
+    onValue, set, remove, update, get,
+    parcelsRef: ref(db, 'parcels'),
+    pinRef:     ref(db, 'config/pinHash'),
+    codeRef:    (key) => ref(db, 'parcels/' + key)
+  };
+
+  document.addEventListener('DOMContentLoaded', () => window._appInit());
+</script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #f0ede8;
+    --surface: #ffffff;
+    --accent: #d94f1e;
+    --accent2: #e8a020;
+    --text: #1a1714;
+    --muted: #8a8480;
+    --border: #ddd9d4;
+    --done-bg: #eaf5ee;
+    --done-fg: #2d8a4e;
+    --shadow: 0 2px 16px rgba(0,0,0,0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Syne', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding-bottom: 60px;
+  }
+
+  /* ── PIN Screen ── */
+  #pinScreen {
+    position: fixed; inset: 0; z-index: 200;
+    background: var(--text);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 0;
+    transition: opacity 0.3s;
+  }
+  #pinScreen.hidden { opacity: 0; pointer-events: none; }
+
+  .pin-logo {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.5rem; font-weight: 800;
+    color: #fff; margin-bottom: 8px; letter-spacing: -0.5px;
+  }
+  .pin-logo span { color: var(--accent); }
+
+  .pin-subtitle {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem; color: var(--muted);
+    margin-bottom: 40px;
+  }
+
+  .pin-dots {
+    display: flex; gap: 14px; margin-bottom: 40px;
+  }
+  .pin-dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid #444;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .pin-dot.filled { background: var(--accent); border-color: var(--accent); }
+  .pin-dot.error  { background: #e74c3c; border-color: #e74c3c; }
+
+  .pin-pad {
+    display: grid;
+    grid-template-columns: repeat(3, 72px);
+    grid-template-rows: repeat(4, 72px);
+    gap: 12px;
+  }
+  .pin-key {
+    background: #2a2724;
+    border: none; border-radius: 50%;
+    color: #fff;
+    font-family: 'Syne', sans-serif;
+    font-size: 1.2rem; font-weight: 700;
+    cursor: pointer;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    transition: background 0.1s, transform 0.1s;
+    user-select: none; -webkit-user-select: none;
+    gap: 1px;
+  }
+  .pin-key:active { background: var(--accent); transform: scale(0.93); }
+  .pin-key .sub {
+    font-size: 0.45rem; font-weight: 400;
+    color: var(--muted); font-family: 'DM Mono', monospace;
+    letter-spacing: 1.5px;
+  }
+  .pin-key.empty { background: transparent; cursor: default; }
+  .pin-key.delete { background: transparent; font-size: 1.4rem; }
+  .pin-key.delete:active { background: #2a2724; }
+
+  .pin-msg {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem; color: var(--muted);
+    margin-top: 28px; min-height: 18px; text-align: center;
+  }
+  .pin-msg.error { color: #e74c3c; }
+  .pin-msg.success { color: var(--done-fg); }
+
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    20%      { transform: translateX(-10px); }
+    40%      { transform: translateX(10px); }
+    60%      { transform: translateX(-8px); }
+    80%      { transform: translateX(8px); }
+  }
+  .shake { animation: shake 0.4s ease; }
+
+  /* ── Main app (hidden until unlocked) ── */
+  #mainApp { display: none; }
+  #mainApp.visible { display: block; }
+
+  /* ── Header ── */
+  header {
+    background: var(--text); color: #fff;
+    padding: 20px 20px 16px;
+    position: sticky; top: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.5px; }
+  header h1 .accent { color: var(--accent); }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .sync-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted); display: inline-block;
+    vertical-align: middle; transition: background 0.3s;
+  }
+  .sync-dot.live { background: #4caf50; }
+  .badge {
+    background: var(--accent); color: white;
+    font-family: 'DM Mono', monospace; font-size: 0.7rem;
+    padding: 3px 10px; border-radius: 20px;
+  }
+  .lock-btn {
+    background: #2a2724; border: none; color: var(--muted);
+    border-radius: 8px; padding: 5px 9px; font-size: 1rem;
+    cursor: pointer; transition: color 0.2s;
+  }
+  .lock-btn:hover { color: #fff; }
+
+  /* ── Upload ── */
+  .upload-zone {
+    margin: 20px 16px 0;
+    border: 2px dashed var(--border); border-radius: 16px;
+    background: var(--surface); padding: 24px 20px;
+    text-align: center; cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--accent); background: #fff8f5;
+  }
+  .upload-zone input[type=file] {
+    position: absolute; inset: 0; opacity: 0;
+    cursor: pointer; width: 100%; height: 100%;
+  }
+  .upload-zone h2 { font-size: 1rem; font-weight: 700; margin-bottom: 4px; }
+  .upload-zone p  { font-size: 0.78rem; color: var(--muted); font-family: 'DM Mono', monospace; }
+  .upload-icon { font-size: 2rem; margin-bottom: 8px; }
+  .preview-img {
+    width: 100%; border-radius: 10px; margin-top: 12px;
+    max-height: 180px; object-fit: cover; display: none;
+  }
+
+  .scan-btn {
+    display: block; width: calc(100% - 32px);
+    margin: 12px 16px 0;
+    background: var(--accent); color: white; border: none;
+    border-radius: 12px; padding: 15px;
+    font-family: 'Syne', sans-serif; font-size: 1rem; font-weight: 700;
+    cursor: pointer; transition: background 0.2s, transform 0.1s;
+  }
+  .scan-btn:hover { background: #b83f14; }
+  .scan-btn:active { transform: scale(0.98); }
+  .scan-btn:disabled { background: var(--muted); cursor: not-allowed; }
+
+  .status-msg {
+    text-align: center; font-family: 'DM Mono', monospace;
+    font-size: 0.75rem; color: var(--muted);
+    margin: 8px 16px 0; min-height: 16px;
+  }
+  .status-msg.error { color: var(--accent); }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex; margin: 18px 16px 0; gap: 4px;
+    background: var(--border); padding: 4px; border-radius: 10px;
+  }
+  .tab {
+    flex: 1; text-align: center; padding: 8px;
+    border-radius: 7px; font-size: 0.82rem; font-weight: 700;
+    cursor: pointer; color: var(--muted); user-select: none;
+    transition: background 0.15s, color 0.15s;
+  }
+  .tab.active {
+    background: var(--surface); color: var(--text);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+  }
+
+  /* ── Cards ── */
+  .parcel-list { padding: 10px 16px 0; display: flex; flex-direction: column; gap: 12px; }
+  .parcel-card { background: var(--surface); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+  .parcel-card.done { opacity: 0.6; }
+
+  .card-top {
+    display: flex; align-items: flex-start;
+    justify-content: space-between; padding: 14px 16px 10px; gap: 10px;
+  }
+  .code-info { display: flex; flex-direction: column; gap: 4px; }
+  .code-num  { font-family: 'DM Mono', monospace; font-size: 1rem; font-weight: 500; }
+  .carriers-row { display: flex; flex-wrap: wrap; gap: 4px; }
+  .carrier-chip {
+    font-size: 0.65rem; font-family: 'DM Mono', monospace;
+    padding: 2px 7px; border-radius: 20px;
+    background: #f0ede8; color: var(--text); font-weight: 500;
+  }
+  .carrier-chip.amazon { background: #1a1714; color: #fff; }
+  .carrier-chip.ups    { background: #4a2f00; color: #fff; }
+  .carrier-chip.fedex  { background: #4d148c; color: #fff; }
+  .carrier-chip.usps   { background: #004b87; color: #fff; }
+  .card-right { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
+  .status-pill {
+    font-size: 0.65rem; font-weight: 700; font-family: 'DM Mono', monospace;
+    padding: 3px 9px; border-radius: 20px; letter-spacing: 0.5px;
+  }
+  .status-pill.pending { background: #fff0eb; color: var(--accent); }
+  .status-pill.done    { background: var(--done-bg); color: var(--done-fg); }
+  .count-badge {
+    background: #f0ede8; color: var(--muted);
+    font-family: 'DM Mono', monospace; font-size: 0.65rem;
+    padding: 2px 8px; border-radius: 20px;
+  }
+  .barcode-wrap {
+    background: #fff; padding: 12px 16px;
+    border-top: 1px solid var(--border); text-align: center;
+  }
+  .barcode-wrap svg { max-width: 100%; height: auto; }
+  .barcode-label {
+    font-family: 'DM Mono', monospace; font-size: 0.68rem;
+    color: var(--muted); margin-top: 4px;
+  }
+  .card-actions { display: flex; border-top: 1px solid var(--border); }
+  .card-actions button {
+    flex: 1; padding: 11px; border: none; background: transparent;
+    font-family: 'Syne', sans-serif; font-size: 0.8rem; font-weight: 700;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .btn-complete { color: var(--done-fg); border-right: 1px solid var(--border); }
+  .btn-complete:hover { background: var(--done-bg); }
+  .btn-undo     { color: var(--accent2); border-right: 1px solid var(--border); }
+  .btn-undo:hover { background: #fff8eb; }
+  .btn-delete   { color: var(--muted); }
+  .btn-delete:hover { background: #f5f0eb; color: var(--accent); }
+
+  .section-label {
+    font-family: 'DM Mono', monospace; font-size: 0.68rem;
+    color: var(--muted); letter-spacing: 1px;
+    text-transform: uppercase; padding: 14px 0 4px;
+  }
+  .empty-state { text-align: center; padding: 48px 20px; color: var(--muted); }
+  .empty-state .em { font-size: 2.5rem; margin-bottom: 10px; }
+  .empty-state p { font-family: 'DM Mono', monospace; font-size: 0.8rem; }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--text); color: white;
+    padding: 10px 20px; border-radius: 30px;
+    font-family: 'DM Mono', monospace; font-size: 0.8rem;
+    z-index: 999; transition: transform 0.3s ease; white-space: nowrap;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: white; border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- ── PIN Screen ── -->
+<div id="pinScreen">
+  <div class="pin-logo">Parcel <span>Pickup</span></div>
+  <div class="pin-subtitle" id="pinSubtitle">enter your pin</div>
+  <div class="pin-dots">
+    <div class="pin-dot" id="d0"></div>
+    <div class="pin-dot" id="d1"></div>
+    <div class="pin-dot" id="d2"></div>
+    <div class="pin-dot" id="d3"></div>
+  </div>
+  <div class="pin-pad" id="pinPad">
+    <button class="pin-key" data-n="1">1<span class="sub"></span></button>
+    <button class="pin-key" data-n="2">2<span class="sub">ABC</span></button>
+    <button class="pin-key" data-n="3">3<span class="sub">DEF</span></button>
+    <button class="pin-key" data-n="4">4<span class="sub">GHI</span></button>
+    <button class="pin-key" data-n="5">5<span class="sub">JKL</span></button>
+    <button class="pin-key" data-n="6">6<span class="sub">MNO</span></button>
+    <button class="pin-key" data-n="7">7<span class="sub">PQRS</span></button>
+    <button class="pin-key" data-n="8">8<span class="sub">TUV</span></button>
+    <button class="pin-key" data-n="9">9<span class="sub">WXYZ</span></button>
+    <button class="pin-key empty"></button>
+    <button class="pin-key" data-n="0">0</button>
+    <button class="pin-key delete" id="pinDelete">⌫</button>
+  </div>
+  <div class="pin-msg" id="pinMsg"></div>
+</div>
+
+<!-- ── Main App ── -->
+<div id="mainApp">
+  <header>
+    <h1>Parcel <span class="accent">Pickup</span> <span class="sync-dot" id="syncDot"></span></h1>
+    <div class="header-right">
+      <span class="badge" id="pendingBadge">0 pending</span>
+      <button class="lock-btn" id="lockBtn" title="Lock app">🔒</button>
+    </div>
+  </header>
+
+  <div class="upload-zone" id="uploadZone">
+    <input type="file" accept="image/*" id="fileInput" capture="environment">
+    <div class="upload-icon">📦</div>
+    <h2>Upload Parcel Pending Screenshot</h2>
+    <p>tap to choose or drag &amp; drop</p>
+    <img class="preview-img" id="previewImg" alt="preview">
+  </div>
+
+  <button class="scan-btn" id="scanBtn" disabled>Extract Parcel Numbers</button>
+  <div class="status-msg" id="statusMsg"></div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="pending">📬 Pending</div>
+    <div class="tab" data-tab="done">✅ Picked Up</div>
+  </div>
+
+  <div id="parcelList" class="parcel-list"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── PIN logic ────────────────────────────────────────────────────────────────
+var pinBuffer  = '';
+var pinMode    = 'check';   // 'check' | 'set' | 'confirm'
+var pinFirst   = '';
+var unlocked   = false;
+
+async function sha256(str) {
+  var buf  = new TextEncoder().encode(str);
+  var hash = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hash)).map(function(b) {
+    return b.toString(16).padStart(2,'0');
+  }).join('');
+}
+
+function updateDots(err) {
+  for (var i = 0; i < 4; i++) {
+    var dot = document.getElementById('d' + i);
+    dot.classList.remove('filled','error');
+    if (err) { dot.classList.add('error'); }
+    else if (i < pinBuffer.length) { dot.classList.add('filled'); }
+  }
+}
+
+function pinMsg(txt, cls) {
+  var el = document.getElementById('pinMsg');
+  el.textContent = txt;
+  el.className = 'pin-msg' + (cls ? ' ' + cls : '');
+}
+
+function shakeScreen() {
+  var pad = document.getElementById('pinPad');
+  pad.classList.remove('shake');
+  void pad.offsetWidth;
+  pad.classList.add('shake');
+}
+
+async function handlePinDigit(n) {
+  if (pinBuffer.length >= 4) return;
+  pinBuffer += n;
+  updateDots(false);
+  if (pinBuffer.length < 4) return;
+
+  // Full PIN entered
+  var hash = await sha256(pinBuffer);
+
+  if (pinMode === 'check') {
+    var snap = await window._fb.get(window._fb.pinRef);
+    var stored = snap.val();
+    if (hash === stored) {
+      pinMsg('✓ Welcome', 'success');
+      setTimeout(unlockApp, 400);
+    } else {
+      updateDots(true);
+      shakeScreen();
+      pinMsg('Incorrect PIN — try again', 'error');
+      setTimeout(function() { pinBuffer = ''; updateDots(false); pinMsg(''); }, 1200);
+    }
+
+  } else if (pinMode === 'set') {
+    pinFirst = hash;
+    pinBuffer = '';
+    updateDots(false);
+    pinMode = 'confirm';
+    document.getElementById('pinSubtitle').textContent = 're-enter to confirm';
+    pinMsg('');
+
+  } else if (pinMode === 'confirm') {
+    if (hash === pinFirst) {
+      await window._fb.set(window._fb.pinRef, hash);
+      pinMsg('PIN set!', 'success');
+      setTimeout(unlockApp, 600);
+    } else {
+      updateDots(true);
+      shakeScreen();
+      pinMsg("PINs didn't match — start over", 'error');
+      setTimeout(function() {
+        pinBuffer = ''; pinFirst = ''; pinMode = 'set';
+        updateDots(false);
+        document.getElementById('pinSubtitle').textContent = 'create a 4-digit pin';
+        pinMsg('');
+      }, 1400);
+    }
+  }
+}
+
+function unlockApp() {
+  unlocked = true;
+  document.getElementById('pinScreen').classList.add('hidden');
+  document.getElementById('mainApp').classList.add('visible');
+  startFirebaseListener();
+}
+
+function lockApp() {
+  unlocked = false;
+  pinBuffer = ''; pinMode = 'check';
+  updateDots(false);
+  pinMsg('');
+  document.getElementById('pinSubtitle').textContent = 'enter your pin';
+  document.getElementById('pinScreen').classList.remove('hidden');
+  document.getElementById('mainApp').classList.remove('visible');
+}
+
+// Wire up keypad
+document.querySelectorAll('.pin-key[data-n]').forEach(function(btn) {
+  btn.addEventListener('click', function() { handlePinDigit(btn.dataset.n); });
+});
+document.getElementById('pinDelete').addEventListener('click', function() {
+  if (pinBuffer.length > 0) {
+    pinBuffer = pinBuffer.slice(0,-1);
+    updateDots(false);
+    pinMsg('');
+  }
+});
+document.getElementById('lockBtn').addEventListener('click', lockApp);
+
+// ─── App state ────────────────────────────────────────────────────────────────
+var currentTab = 'pending';
+var imageBase64 = null;
+var allParcels  = {};
+
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function() { t.classList.remove('show'); }, 2500);
+}
+function setStatus(msg, isError) {
+  var el = document.getElementById('statusMsg');
+  el.textContent = msg;
+  el.className = 'status-msg' + (isError ? ' error' : '');
+}
+function safeKey(code) { return String(code).replace(/[.#$\/\[\]]/g,'_'); }
+function chipClass(c) {
+  c = (c||'').toLowerCase();
+  if (c.includes('amazon')) return 'amazon';
+  if (c.includes('ups'))    return 'ups';
+  if (c.includes('fedex'))  return 'fedex';
+  if (c.includes('usps'))   return 'usps';
+  return '';
+}
+function updateBadge() {
+  var n = Object.values(allParcels).filter(function(p){return !p.done;}).length;
+  document.getElementById('pendingBadge').textContent = n + ' pending';
+}
+function renderBarcode(code, svgId) {
+  setTimeout(function() {
+    var el = document.getElementById(svgId);
+    if (!el) return;
+    try {
+      JsBarcode(el, String(code), { format:'CODE128', width:2, height:60, displayValue:false, margin:4 });
+    } catch(e) {
+      el.outerHTML = '<p style="color:var(--muted);font-size:0.75rem;font-family:DM Mono,monospace">Invalid: '+code+'</p>';
+    }
+  }, 50);
+}
+function buildCard(key, data) {
+  var isDone = !!data.done;
+  var svgId  = 'bc_' + key;
+  var carriers = data.carriers || [];
+  var count    = data.count || carriers.length || 1;
+  var displayCode = data.code || key;
+  var chips = carriers.map(function(c) {
+    return '<span class="carrier-chip '+chipClass(c)+'">'+(c||'📦')+'</span>';
+  }).join('');
+  var card = document.createElement('div');
+  card.className = 'parcel-card' + (isDone ? ' done' : '');
+  card.innerHTML =
+    '<div class="card-top">'+
+      '<div class="code-info">'+
+        '<div class="code-num">#'+displayCode+'</div>'+
+        '<div class="carriers-row">'+chips+'</div>'+
+      '</div>'+
+      '<div class="card-right">'+
+        '<span class="status-pill '+(isDone?'done':'pending')+'">'+(isDone?'PICKED UP':'PENDING')+'</span>'+
+        '<span class="count-badge">'+count+' pkg</span>'+
+      '</div>'+
+    '</div>'+
+    '<div class="barcode-wrap"><svg id="'+svgId+'"></svg>'+
+      '<div class="barcode-label">CODE 128 · '+displayCode+'</div></div>'+
+    '<div class="card-actions">'+
+      (!isDone
+        ? '<button class="btn-complete" onclick="markDone(\''+key+'\')">✓ Pick Up All</button>'
+        : '<button class="btn-undo" onclick="markUndone(\''+key+'\')">↩ Mark Pending</button>')+
+      '<button class="btn-delete" onclick="deleteCode(\''+key+'\')">🗑 Remove</button>'+
+    '</div>';
+  return card;
+}
+function renderList() {
+  var list    = document.getElementById('parcelList');
+  var entries = Object.entries(allParcels)
+    .filter(function(e){ return currentTab==='pending' ? !e[1].done : e[1].done; });
+  if (entries.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="em">'+(currentTab==='pending'?'📭':'🎉')+'</div>'+
+      '<p>'+(currentTab==='pending'?'No pending pickups':'No completed pickups yet')+'</p></div>';
+    updateBadge(); return;
+  }
+  list.innerHTML = '';
+  if (currentTab === 'pending') {
+    var groups = {};
+    entries.forEach(function(e){
+      var d = e[1].dateLabel || 'Unknown';
+      if (!groups[d]) groups[d] = [];
+      groups[d].push(e);
+    });
+    var order  = ['Today','Yesterday'];
+    var sorted = Object.keys(groups).sort(function(a,b){
+      var ai=order.indexOf(a), bi=order.indexOf(b);
+      if (ai>-1&&bi>-1) return ai-bi;
+      if (ai>-1) return -1; if (bi>-1) return 1; return 0;
+    });
+    sorted.forEach(function(date){
+      var lbl = document.createElement('div');
+      lbl.className='section-label'; lbl.textContent=date;
+      list.appendChild(lbl);
+      groups[date].forEach(function(e){
+        list.appendChild(buildCard(e[0],e[1]));
+        renderBarcode(e[1].code||e[0],'bc_'+e[0]);
+      });
+    });
+  } else {
+    entries.forEach(function(e){
+      list.appendChild(buildCard(e[0],e[1]));
+      renderBarcode(e[1].code||e[0],'bc_'+e[0]);
+    });
+  }
+  updateBadge();
+}
+
+function markDone(key) {
+  window._fb.update(window._fb.codeRef(key),{done:true,doneAt:new Date().toISOString()});
+  showToast('Picked up ✓');
+}
+function markUndone(key) {
+  window._fb.update(window._fb.codeRef(key),{done:false,doneAt:null});
+}
+function deleteCode(key) {
+  window._fb.remove(window._fb.codeRef(key));
+  showToast('Removed');
+}
+
+// ─── Upload & AI ──────────────────────────────────────────────────────────────
+var fileInput  = document.getElementById('fileInput');
+var previewImg = document.getElementById('previewImg');
+var scanBtn    = document.getElementById('scanBtn');
+var uploadZone = document.getElementById('uploadZone');
+
+uploadZone.addEventListener('dragover',function(e){e.preventDefault();uploadZone.classList.add('dragover');});
+uploadZone.addEventListener('dragleave',function(){uploadZone.classList.remove('dragover');});
+uploadZone.addEventListener('drop',function(e){
+  e.preventDefault();uploadZone.classList.remove('dragover');
+  if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change',function(){
+  if(fileInput.files[0]) handleFile(fileInput.files[0]);
+});
+function handleFile(file) {
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var dataUrl=e.target.result;
+    imageBase64=dataUrl.split(',')[1];
+    previewImg.src=dataUrl; previewImg.style.display='block';
+    scanBtn.disabled=false;
+    setStatus('Image ready — tap Extract to scan');
+  };
+  reader.readAsDataURL(file);
+}
+scanBtn.addEventListener('click', async function(){
+  if(!imageBase64) return;
+  scanBtn.disabled=true;
+  scanBtn.innerHTML='<span class="spinner"></span>Scanning...';
+  setStatus('Sending to Claude Vision...');
+  try {
+    var res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:1000,
+        messages:[{role:'user',content:[
+          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:imageBase64}},
+          {type:'text',text:'Extract all parcel pickup codes from this Parcel Pending app screenshot.\n\nIMPORTANT: The same pickup code may appear multiple times with different carriers — group by code.\n\nReturn ONLY a valid JSON array, no markdown:\n[\n  {"code":"37039842","carriers":["Amazon","Amazon"],"count":2,"dateLabel":"2 days ago"},\n  {"code":"50662385","carriers":["UPS"],"count":1,"dateLabel":"Today"}\n]\n\nRules:\n- code = numeric pickup code\n- carriers = every carrier listed for that code (may repeat)\n- count = total packages for that code\n- dateLabel = section header shown (Today, Yesterday, "X days ago")\n- If none found return []'}
+        ]}]
+      })
+    });
+    var data=await res.json();
+    var raw=(data.content||[]).find(function(b){return b.type==='text';});
+    raw=raw?raw.text:'[]';
+    var extracted=JSON.parse(raw.replace(/```json|```/g,'').trim());
+    if(!Array.isArray(extracted)||extracted.length===0){
+      setStatus('No parcel codes found in that image.',true);
+      scanBtn.innerHTML='Extract Parcel Numbers'; scanBtn.disabled=false; return;
+    }
+    var added=0;
+    for(var i=0;i<extracted.length;i++){
+      var item=extracted[i], key=safeKey(item.code);
+      if(!allParcels[key]){
+        await window._fb.set(window._fb.codeRef(key),{
+          code:item.code, carriers:item.carriers||[], count:item.count||(item.carriers?item.carriers.length:1),
+          dateLabel:item.dateLabel||'Unknown', done:false, addedAt:new Date().toISOString()
+        });
+        added++;
+      } else {
+        var ex=allParcels[key];
+        await window._fb.set(window._fb.codeRef(key),Object.assign({},ex,{
+          carriers:(ex.carriers||[]).concat(item.carriers||[]),
+          count:(ex.count||1)+(item.count||1)
+        }));
+      }
+    }
+    setStatus('Found '+extracted.length+' code(s) — '+added+' new added.');
+    currentTab='pending';
+    document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t.dataset.tab==='pending');});
+    showToast(added+' code'+(added!==1?'s':'')+' added 📦');
+    fileInput.value=''; previewImg.style.display='none'; imageBase64=null; scanBtn.disabled=true;
+  } catch(err) {
+    setStatus('Error: '+err.message, true);
+  }
+  scanBtn.innerHTML='Extract Parcel Numbers';
+});
+
+document.querySelectorAll('.tab').forEach(function(tab){
+  tab.addEventListener('click',function(){
+    document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
+    tab.classList.add('active'); currentTab=tab.dataset.tab; renderList();
+  });
+});
+
+// ─── Firebase listener (only started after unlock) ────────────────────────────
+function startFirebaseListener() {
+  document.getElementById('syncDot').classList.add('live');
+  window._fb.onValue(window._fb.parcelsRef, function(snap){
+    allParcels = snap.val() || {};
+    renderList();
+  });
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+window._appInit = async function() {
+  var snap   = await window._fb.get(window._fb.pinRef);
+  var stored = snap.val();
+  if (!stored) {
+    // No PIN set yet — prompt to create one
+    pinMode = 'set';
+    document.getElementById('pinSubtitle').textContent = 'create a 4-digit pin';
+    pinMsg('First launch — set your PIN');
+  }
+  // PIN screen is already visible by default, nothing else needed
+};
+</script>
+</body>
+</html>
