@@ -386,6 +386,9 @@
 
 <script>
 // ─── PIN logic ────────────────────────────────────────────────────────────────
+var SESSION_KEY = 'pp_session_ts';
+var SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
+
 var pinBuffer  = '';
 var pinMode    = 'check';   // 'check' | 'set' | 'confirm'
 var pinFirst   = '';
@@ -472,6 +475,7 @@ async function handlePinDigit(n) {
 
 function unlockApp() {
   unlocked = true;
+  localStorage.setItem(SESSION_KEY, Date.now().toString());
   document.getElementById('pinScreen').classList.add('hidden');
   document.getElementById('mainApp').classList.add('visible');
   startFirebaseListener();
@@ -494,6 +498,7 @@ async function checkSharedImage() {
 
 function lockApp() {
   unlocked = false;
+  localStorage.removeItem(SESSION_KEY);
   pinBuffer = ''; pinMode = 'check';
   updateDots(false);
   pinMsg('');
@@ -730,6 +735,13 @@ window._appInit = async function() {
     pinMode = 'set';
     document.getElementById('pinSubtitle').textContent = 'create a 4-digit pin';
     pinMsg('First launch — set your PIN');
+    return;
+  }
+  // Check for a valid cached session (< 30 days old)
+  var ts = parseInt(localStorage.getItem(SESSION_KEY) || '0', 10);
+  if (ts && (Date.now() - ts) < SESSION_TTL) {
+    unlockApp();
+    return;
   }
   // PIN screen is already visible by default, nothing else needed
 };
