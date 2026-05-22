@@ -562,10 +562,10 @@ function renderBarcode(code, svgId) {
     }
   }, 50);
 }
-function formatAddedAt(iso) {
+function formatTimestamp(label, iso) {
   if (!iso) return '';
   var d = new Date(iso);
-  return 'Added ' + d.toLocaleDateString('en-US', {month:'short', day:'numeric'}) +
+  return label + ' ' + d.toLocaleDateString('en-US', {month:'short', day:'numeric'}) +
     ' at ' + d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
 }
 
@@ -585,7 +585,8 @@ function buildCard(key, data) {
       '<div class="code-info">'+
         '<div class="code-num">#'+displayCode+'</div>'+
         '<div class="carriers-row">'+chips+'</div>'+
-        (data.addedAt ? '<div class="added-at">'+formatAddedAt(data.addedAt)+'</div>' : '')+
+        (data.addedAt ? '<div class="added-at">'+formatTimestamp('Added', data.addedAt)+'</div>' : '')+
+        (isDone && data.doneAt ? '<div class="added-at">'+formatTimestamp('Picked up', data.doneAt)+'</div>' : '')+
       '</div>'+
       '<div class="card-right">'+
         '<span class="status-pill '+(isDone?'done':'pending')+'">'+(isDone?'PICKED UP':'PENDING')+'</span>'+
