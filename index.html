@@ -252,6 +252,7 @@
   .code-info { display: flex; flex-direction: column; gap: 4px; }
   .code-num  { font-family: 'DM Mono', monospace; font-size: 1rem; font-weight: 500; }
   .carriers-row { display: flex; flex-wrap: wrap; gap: 4px; }
+  .added-at { font-family: 'DM Mono', monospace; font-size: 0.62rem; color: var(--muted); margin-top: 2px; }
   .carrier-chip {
     font-size: 0.65rem; font-family: 'DM Mono', monospace;
     padding: 2px 7px; border-radius: 20px;
@@ -561,6 +562,13 @@ function renderBarcode(code, svgId) {
     }
   }, 50);
 }
+function formatTimestamp(label, iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  return label + ' ' + d.toLocaleDateString('en-US', {month:'short', day:'numeric'}) +
+    ' at ' + d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+}
+
 function buildCard(key, data) {
   var isDone = !!data.done;
   var svgId  = 'bc_' + key;
@@ -577,6 +585,8 @@ function buildCard(key, data) {
       '<div class="code-info">'+
         '<div class="code-num">#'+displayCode+'</div>'+
         '<div class="carriers-row">'+chips+'</div>'+
+        (data.addedAt ? '<div class="added-at">'+formatTimestamp('Added', data.addedAt)+'</div>' : '')+
+        (isDone && data.doneAt ? '<div class="added-at">'+formatTimestamp('Picked up', data.doneAt)+'</div>' : '')+
       '</div>'+
       '<div class="card-right">'+
         '<span class="status-pill '+(isDone?'done':'pending')+'">'+(isDone?'PICKED UP':'PENDING')+'</span>'+
