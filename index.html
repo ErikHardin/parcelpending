@@ -277,12 +277,21 @@
   .barcode-wrap {
     background: #fff; padding: 12px 16px;
     border-top: 1px solid var(--border); text-align: center;
+    display: none;
   }
+  .barcode-wrap.open { display: block; }
   .barcode-wrap svg { max-width: 100%; height: auto; }
   .barcode-label {
     font-family: 'DM Mono', monospace; font-size: 0.68rem;
     color: var(--muted); margin-top: 4px;
   }
+  .card-top { cursor: pointer; user-select: none; }
+  .card-chevron {
+    font-size: 0.7rem; color: var(--muted);
+    transition: transform 0.2s ease; display: inline-block;
+    margin-top: 2px;
+  }
+  .card-chevron.open { transform: rotate(180deg); }
   .card-actions { display: flex; border-top: 1px solid var(--border); }
   .card-actions button {
     flex: 1; padding: 11px; border: none; background: transparent;
@@ -591,6 +600,7 @@ function buildCard(key, data) {
       '<div class="card-right">'+
         '<span class="status-pill '+(isDone?'done':'pending')+'">'+(isDone?'PICKED UP':'PENDING')+'</span>'+
         '<span class="count-badge">'+count+' pkg</span>'+
+        '<span class="card-chevron">▼</span>'+
       '</div>'+
     '</div>'+
     '<div class="barcode-wrap"><svg id="'+svgId+'"></svg>'+
@@ -601,6 +611,12 @@ function buildCard(key, data) {
         : '<button class="btn-undo" onclick="markUndone(\''+key+'\')">↩ Mark Pending</button>')+
       '<button class="btn-delete" onclick="deleteCode(\''+key+'\')">🗑 Remove</button>'+
     '</div>';
+  card.querySelector('.card-top').addEventListener('click', function() {
+    var wrap = card.querySelector('.barcode-wrap');
+    var chev = card.querySelector('.card-chevron');
+    var isOpen = wrap.classList.toggle('open');
+    chev.classList.toggle('open', isOpen);
+  });
   return card;
 }
 function renderList() {
