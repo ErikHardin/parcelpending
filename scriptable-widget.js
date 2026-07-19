@@ -14,8 +14,12 @@
 // The widget reads the same Firebase Realtime Database the web app uses,
 // so it stays in sync automatically. Data is cached locally so the widget
 // still shows the last known state when offline.
+//
+// Tapping the widget opens a menu in Scriptable where you can view the
+// barcode full screen, mark a parcel as picked up, or open the web app.
 
-const DB_URL  = "https://parcelpending-e22a5-default-rtdb.firebaseio.com/parcels.json";
+const DB_ROOT = "https://parcelpending-e22a5-default-rtdb.firebaseio.com";
+const DB_URL  = DB_ROOT + "/parcels.json";
 const APP_URL = "https://erikhardin.github.io/parcelpending/";
 
 // Match the web app: JsBarcode encodes the code plus a trailing newline
@@ -37,6 +41,25 @@ async function fetchParcels() {
     }
     return {};
   }
+}
+
+// Pending [key, parcel] entries, newest first.
+function pendingEntries(parcels) {
+  return Object.entries(parcels)
+    .filter(([, p]) => p && !p.done)
+    .sort((a, b) => String(b[1].addedAt || "").localeCompare(String(a[1].addedAt || "")));
+}
+
+function barcodeText(code) {
+  return APPEND_NEWLINE ? String(code) + "\n" : String(code);
+}
+
+async function markPickedUp(key) {
+  const req = new Request(DB_ROOT + "/parcels/" + encodeURIComponent(key) + ".json");
+  req.method = "PATCH";
+  req.headers = { "Content-Type": "application/json" };
+  req.body = JSON.stringify({ done: true, doneAt: new Date().toISOString() });
+  await req.loadJSON();
 }
 
 // ─── CODE128 encoding ─────────────────────────────────────────────────────────
@@ -139,12 +162,12 @@ function drawBarcode(text, widthPt, heightPt) {
 
 async function buildWidget() {
   const parcels = await fetchParcels();
-  const pending = Object.values(parcels).filter((p) => p && !p.done);
-  pending.sort((a, b) => String(b.addedAt || "").localeCompare(String(a.addedAt || "")));
+  const pending = pendingEntries(parcels).map(([, p]) => p);
   const totalPkgs = pending.reduce((s, p) => s + (p.count || 1), 0);
 
   const w = new ListWidget();
-  w.url = APP_URL;
+  // No w.url: tapping the widget runs this script in Scriptable,
+  // which opens the interactive menu below.
   w.backgroundColor = new Color("#1a1714");
   w.setPadding(12, 12, 12, 12);
   w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
@@ -183,8 +206,7 @@ async function buildWidget() {
   w.addSpacer();
 
   const code = String(pending[0].code || "");
-  const barcodeText = APPEND_NEWLINE ? code + "\n" : code;
-  const img = w.addImage(drawBarcode(barcodeText, 260, 76));
+  const img = w.addImage(drawBarcode(barcodeText(code), 260, 76));
   img.centerAlignImage();
   img.containerRelativeShape = false;
   img.cornerRadius = 4;
@@ -203,10 +225,97 @@ async function buildWidget() {
   return w;
 }
 
-const widget = await buildWidget();
+// ─── Interactive menu (runs when the widget is tapped) ────────────────────────
+
+// Bigger barcode image for full-screen viewing, with the code printed below.
+function drawBigBarcode(code) {
+  const width = 640, height = 260;
+  const ctx = new DrawContext();
+  ctx.size = new Size(width, height);
+  ctx.opaque = true;
+  ctx.respectScreenScale = true;
+  ctx.setFillColor(Color.white());
+  ctx.fillRect(new Rect(0, 0, width, height));
+  ctx.drawImageInRect(drawBarcode(barcodeText(code), 600, 190), new Rect(20, 10, 600, 190));
+  ctx.setTextColor(Color.black());
+  ctx.setFont(Font.regularMonospacedSystemFont(28));
+  ctx.setTextAlignedCenter();
+  ctx.drawTextInRect("#" + code, new Rect(0, 210, width, 40));
+  return ctx.getImage();
+}
+
+async function showBarcode(code) {
+  await QuickLook.present(drawBigBarcode(code), false);
+}
+
+async function runMenu() {
+  const parcels = await fetchParcels();
+  const pending = pendingEntries(parcels);
+
+  if (pending.length === 0) {
+    const a = new Alert();
+    a.title = "🎉 All picked up";
+    a.message = "No pending parcels.";
+    a.addAction("Open web app");
+    a.addCancelAction("Done");
+    if (await a.presentAlert() === 0) Safari.open(APP_URL);
+    return;
+  }
+
+  // With several pending codes, pick one first.
+  let entry;
+  if (pending.length === 1) {
+    entry = pending[0];
+  } else {
+    const a = new Alert();
+    a.title = "Pending parcels";
+    for (const [, p] of pending) {
+      a.addAction("#" + p.code + "  ·  " + (p.count || 1) + " pkg");
+    }
+    a.addCancelAction("Cancel");
+    const idx = await a.presentSheet();
+    if (idx < 0) return;
+    entry = pending[idx];
+  }
+
+  const [key, p] = entry;
+  const code = String(p.code || key);
+  const a = new Alert();
+  a.title = "#" + code;
+  a.message = (p.count || 1) + " package" + ((p.count || 1) !== 1 ? "s" : "");
+  a.addAction("Show barcode");
+  a.addAction("✓ Mark picked up");
+  a.addAction("Open web app");
+  a.addCancelAction("Cancel");
+  const idx = await a.presentSheet();
+
+  if (idx === 0) {
+    await showBarcode(code);
+  } else if (idx === 1) {
+    try {
+      await markPickedUp(key);
+      const ok = new Alert();
+      ok.title = "✓ Picked up";
+      ok.message = "#" + code + " marked as picked up.\nThe widget will update on its next refresh.";
+      ok.addCancelAction("Done");
+      await ok.presentAlert();
+    } catch (e) {
+      const err = new Alert();
+      err.title = "Couldn't update";
+      err.message = "Check your connection and try again.";
+      err.addCancelAction("OK");
+      await err.presentAlert();
+    }
+  } else if (idx === 2) {
+    Safari.open(APP_URL);
+  }
+}
+
+// ─── Entry point ──────────────────────────────────────────────────────────────
+
 if (config.runsInWidget) {
-  Script.setWidget(widget);
+  Script.setWidget(await buildWidget());
 } else {
-  await widget.presentSmall();
+  await runMenu();
 }
 Script.complete();
