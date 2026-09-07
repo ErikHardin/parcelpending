@@ -12,6 +12,12 @@ mark a parcel as picked up (writes straight to Firebase, same as the web
 app's "Pick Up All" button), or open the web app. iOS widgets can't have
 inline buttons, so the tap-through menu is the closest equivalent.
 
+There is also a combined **Large** widget — `widget-dashboard.js` in the
+[Trips](https://github.com/ErikHardin/Trips) repo — that carries this pending
+count alongside the trip countdown and a weather strip. It uses the same
+Firebase database and the same tap-through menu; `scriptable-widget.js` stays
+the small stand-alone one.
+
 Setup:
 
 1. Install Scriptable from the App Store.
